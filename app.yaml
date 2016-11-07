@@ -7,10 +7,14 @@ threadsafe: yes
 handlers:
 - url: /_ah/spi/.*
   script: battleships.api
+  secure: always
 
 libraries:
 - name: webapp2
   version: "2.5.2"
 
 - name: endpoints
+  version: latest
+
+- name: pycrypto
   version: latest
