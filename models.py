@@ -9,14 +9,34 @@ class User(ndb.Model):
     name = ndb.StringProperty(required=True)
     email = ndb.StringProperty()
 
+    @classmethod
+    def create_user(cls, auth_user, user_name):
+
+        if User.query(User.email == auth_user.email()).get():
+            raise endpoints.ConflictException(
+                    'You have already registered!')
+
+        if User.query(User.name == user_name).get():
+            raise endpoints.ConflictException(
+                    'A User with that name already exists!')
+        user = User(name=user_name, email=auth_user.email())
+        user.put()
+        return user
+
+    @classmethod
+    def by_email(cls, email):
+        user = cls.query(cls.email == email).get()
+        return user
+
 
 class Game(ndb.Model):
     class GameState(messages.Enum):
         WAITING_FOR_OPPONENT = 0
         PREPARING_BOARD = 1
-        PLAYER_1_TURN = 2
-        PLAYER_2_TURN = 3
+        PLAYER_ONE_TURN = 2
+        PLAYER_TWO_TURN = 3
         GAME_COMPLETE = 4
+        GAME_CANCELLED = 5
 
     class BoardRules(messages.Message):
         width = messages.IntegerField(1, default=10)
@@ -32,10 +52,12 @@ class Game(ndb.Model):
     game_settings = msgprop.MessageProperty(BoardRules, required=True)
     game_board = ndb.JsonProperty()
     game_history = ndb.JsonProperty()
+    player_winner = ndb.KeyProperty(kind='User')
+    last_update = ndb.DateTimeProperty(auto_now=True)
 
     @classmethod
     def create_game(cls, user, form):
-        settings = form.get_assigned_value('rules') or Game.BoardRules()
+        settings = form.get_assigned_value('rules') or cls.BoardRules()
 
         # Fix an issue with default values not saving until assigned.
         settings.width = settings.width
@@ -47,11 +69,68 @@ class Game(ndb.Model):
 
         game = Game(
                 player_one=user.key,
-                game_state=Game.GameState.WAITING_FOR_OPPONENT,
+                game_state=cls.GameState.WAITING_FOR_OPPONENT,
                 game_settings=settings
             )
         game.put()
         return game
+
+    @classmethod
+    def by_urlsafe(cls, urlsafe):
+        try:
+            return ndb.Key(urlsafe=urlsafe).get()
+        except TypeError:
+            raise endpoints.BadRequestException('Invalid Key')
+        except Exception, e:
+            if e.__class__.__name__ == 'ProtocolBufferDecodeError':
+                raise endpoints.BadRequestException('Invalid Key')
+            else:
+                raise
+
+    @classmethod
+    def by_game_state(cls, game_state, limit=10):
+        games = (
+                cls.query()
+                .filter(cls.game_state == game_state)
+                .order(-cls.last_update)
+                .fetch(limit)
+            )
+        return games
+
+    @classmethod
+    def get_active_games(cls, user, limit=10):
+        games = (
+            cls.query()
+            .filter(ndb.OR(
+                cls.player_one == user.key,
+                cls.player_two == user.key
+            ))
+            .filter(
+                cls.game_state.IN([
+                    cls.GameState.WAITING_FOR_OPPONENT,
+                    cls.GameState.PREPARING_BOARD,
+                    cls.GameState.PLAYER_ONE_TURN,
+                    cls.GameState.PLAYER_TWO_TURN
+                ])
+            )
+            .order(-cls.last_update)
+            .fetch()
+        )
+        return games
+
+    def add_player(self, user):
+        self.player_two = user.key
+        self.game_state = Game.GameState.PREPARING_BOARD
+        self.put()
+        return self
+
+    def has_player(self, user):
+        return self.player_one == user.key or self.player_two == user.key
+
+    def cancel_game(self):
+        self.game_state = Game.GameState.GAME_CANCELLED
+        self.put()
+        return self
 
     def to_form(self):
         """Returns a GameForm representation of the Game"""
@@ -83,6 +162,21 @@ class GameInfoForm(messages.Message):
 
 class GameListForm(messages.Message):
     games = messages.MessageField(GameInfoForm, 1, repeated=True)
+
+
+class Position(messages.Message):
+    x = messages.IntegerField(1, required=True)
+    y = messages.IntegerField(2, required=True)
+
+
+class ShipPlacement(messages.Message):
+    position = messages.MessageField(Position, 1, required=True)
+    length = messages.IntegerField(2, required=True)
+    vertical = messages.BooleanField(3, default=False)
+
+
+class ShipPlacementForm(messages.Message):
+    ships = messages.MessageField(ShipPlacement, 1, repeated=True)
 
 
 class StringMessage(messages.Message):

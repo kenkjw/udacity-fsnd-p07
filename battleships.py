@@ -7,7 +7,9 @@ from models import Game
 from models import GameInfoForm
 from models import GameListForm
 from models import NewGameForm
+from models import Position
 from models import RegisterUserForm
+from models import ShipPlacementForm
 from models import StringMessage
 from models import User
 from settings import WEB_CLIENT_ID
@@ -17,9 +19,19 @@ API_EXPLORER_CLIENT_ID = endpoints.API_EXPLORER_CLIENT_ID
 
 USER_REQUEST = endpoints.ResourceContainer(RegisterUserForm)
 NEW_GAME_REQUEST = endpoints.ResourceContainer(NewGameForm)
+VOID_REQUEST = endpoints.ResourceContainer(message_types.VoidMessage)
 LIST_GAMES_REQUEST = endpoints.ResourceContainer(
     message_types.VoidMessage,
     limit=messages.IntegerField(1, default=10))
+GAME_REQUEST = endpoints.ResourceContainer(
+    message_types.VoidMessage,
+    game_key=messages.StringField(1, required=True))
+POSITION_REQUEST = endpoints.ResourceContainer(
+    Position,
+    game_key=messages.StringField(1, required=True))
+SHIP_PLACEMENT_REQUEST = endpoints.ResourceContainer(
+    ShipPlacementForm,
+    game_key=messages.StringField(1, required=True))
 
 
 @endpoints.api(
@@ -36,39 +48,97 @@ class BattleshipApi(remote.Service):
                       http_method='POST')
     def create_user(self, request):
         """Create a User. Requires a unique username"""
-        user = endpoints.get_current_user()
-        if User.query(User.email == user.email()).get():
-            raise endpoints.ConflictException(
-                    'You have already registered!')
-
-        if User.query(User.name == request.user_name).get():
-            raise endpoints.ConflictException(
-                    'A User with that name already exists!')
-        user = User(name=request.user_name, email=user.email())
-        user.put()
+        auth_user = endpoints.get_current_user()
+        user = User.create_user(auth_user, request.user_name)
         return StringMessage(message='User {} created!'.format(
-                request.user_name))
+                user.name))
 
     @endpoints.method(request_message=NEW_GAME_REQUEST,
                       response_message=GameInfoForm,
                       path='game',
-                      name='new_game',
+                      name='game_new',
                       http_method='POST')
     def new_game(self, request):
         auth_user = endpoints.get_current_user()
-        user = User.query(User.email == auth_user.email()).get()
+        user = User.by_email(auth_user.email())
         game = Game.create_game(user, request)
         return game.to_form()
 
     @endpoints.method(request_message=LIST_GAMES_REQUEST,
                       response_message=GameListForm,
-                      path='game',
-                      name='list_games',
+                      path='game/open',
+                      name='get_open_games',
                       http_method='GET')
-    def list_games(self, request):
-        games = Game.query(
-            Game.game_state == Game.GameState.WAITING_FOR_OPPONENT).fetch(
+    def list_open_games(self, request):
+        games = Game.by_game_state(
+            Game.GameState.WAITING_FOR_OPPONENT,
             request.limit)
         return GameListForm(games=[game.to_form() for game in games])
+
+    @endpoints.method(request_message=GAME_REQUEST,
+                      response_message=GameInfoForm,
+                      path='game/{game_key}/join',
+                      name='game_join',
+                      http_method='POST')
+    def join_game(self, request):
+        auth_user = endpoints.get_current_user()
+        user = User.by_email(auth_user.email())
+        game = Game.by_urlsafe(request.game_key)
+        game.add_player(user)
+        return game.to_form()
+
+    @endpoints.method(request_message=VOID_REQUEST,
+                      response_message=GameListForm,
+                      path='game/active',
+                      name='get_active_games',
+                      http_method='GET')
+    def get_user_games(self, request):
+        auth_user = endpoints.get_current_user()
+        user = User.by_email(auth_user.email())
+        games = Game.get_active_games(user)
+        return GameListForm(games=[game.to_form() for game in games])
+
+    @endpoints.method(request_message=GAME_REQUEST,
+                      response_message=GameInfoForm,
+                      path='game/{game_key}/cancel',
+                      name='game_cancel',
+                      http_method='POST')
+    def cancel_game(self, request):
+        auth_user = endpoints.get_current_user()
+        user = User.by_email(auth_user.email())
+        game = Game.by_urlsafe(request.game_key)
+        game.cancel_game()
+        return game.to_form()
+
+    @endpoints.method(request_message=SHIP_PLACEMENT_REQUEST,
+                      response_message=StringMessage,
+                      path='game/{game_key}/ships',
+                      name='game_place_ships',
+                      http_method='POST')
+    def place_ships(self, request):
+        pass
+
+    @endpoints.method(request_message=POSITION_REQUEST,
+                      response_message=StringMessage,
+                      path='game/{game_key}/fire',
+                      name='game_fire',
+                      http_method='POST')
+    def post_turn(self, request):
+        pass
+
+    def get_user_rankings(self, request):
+        pass
+
+    def get_game_history(self, request):
+        pass
+
+    @endpoints.method(request_message=GAME_REQUEST,
+                      response_message=GameInfoForm,
+                      path='game/{game_key}',
+                      name='get_game',
+                      http_method='GET')
+    def get_game(self, request):
+        game = Game.by_urlsafe(request.game_key)
+        return game.to_form()
 
 api = endpoints.api_server([BattleshipApi])  # register API
