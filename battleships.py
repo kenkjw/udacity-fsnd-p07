@@ -1,6 +1,9 @@
 import endpoints
 from protorpc import remote
 
+from models import Game
+from models import GameInfoForm
+from models import NewGameForm
 from models import RegisterUserForm
 from models import StringMessage
 from models import User
@@ -10,6 +13,7 @@ EMAIL_SCOPE = endpoints.EMAIL_SCOPE
 API_EXPLORER_CLIENT_ID = endpoints.API_EXPLORER_CLIENT_ID
 
 USER_REQUEST = endpoints.ResourceContainer(RegisterUserForm)
+NEW_GAME_REQUEST = endpoints.ResourceContainer(NewGameForm)
 
 
 @endpoints.api(
@@ -39,5 +43,15 @@ class BattleshipApi(remote.Service):
         return StringMessage(message='User {} created!'.format(
                 request.user_name))
 
+    @endpoints.method(request_message=NEW_GAME_REQUEST,
+                      response_message=GameInfoForm,
+                      path='game',
+                      name='new_game',
+                      http_method='POST')
+    def new_game(self, request):
+        auth_user = endpoints.get_current_user()
+        user = User.query(User.email == auth_user.email()).get()
+        game = Game.create_game(user, request)
+        return game.to_form()
 
 api = endpoints.api_server([BattleshipApi])  # register API
