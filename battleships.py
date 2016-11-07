@@ -1,8 +1,11 @@
 import endpoints
+from protorpc import message_types
+from protorpc import messages
 from protorpc import remote
 
 from models import Game
 from models import GameInfoForm
+from models import GameListForm
 from models import NewGameForm
 from models import RegisterUserForm
 from models import StringMessage
@@ -14,6 +17,9 @@ API_EXPLORER_CLIENT_ID = endpoints.API_EXPLORER_CLIENT_ID
 
 USER_REQUEST = endpoints.ResourceContainer(RegisterUserForm)
 NEW_GAME_REQUEST = endpoints.ResourceContainer(NewGameForm)
+LIST_GAMES_REQUEST = endpoints.ResourceContainer(
+    message_types.VoidMessage,
+    limit=messages.IntegerField(1, default=10))
 
 
 @endpoints.api(
@@ -53,5 +59,16 @@ class BattleshipApi(remote.Service):
         user = User.query(User.email == auth_user.email()).get()
         game = Game.create_game(user, request)
         return game.to_form()
+
+    @endpoints.method(request_message=LIST_GAMES_REQUEST,
+                      response_message=GameListForm,
+                      path='game',
+                      name='list_games',
+                      http_method='GET')
+    def list_games(self, request):
+        games = Game.query(
+            Game.game_state == Game.GameState.WAITING_FOR_OPPONENT).fetch(
+            request.limit)
+        return GameListForm(games=[game.to_form() for game in games])
 
 api = endpoints.api_server([BattleshipApi])  # register API
