@@ -1,3 +1,4 @@
+import datetime
 import endpoints
 from protorpc import messages
 from google.appengine.ext import ndb
@@ -31,6 +32,9 @@ class User(ndb.Model):
     @classmethod
     def by_email(cls, email):
         user = cls.query(cls.email == email).get()
+        if not user:
+            raise endpoints.UnauthorizedException(
+                'You must register a user name first.')
         return user
 
     @classmethod
@@ -138,7 +142,32 @@ class Game(ndb.Model):
         )
         return games
 
+    @classmethod
+    def get_inactive_games(cls):
+        one_hour_ago = datetime.datetime.now() + datetime.timedelta(minutes=0)
+        two_hour_ago = datetime.datetime.now() + datetime.timedelta(minutes=-3)
+        games = (
+            cls.query()
+            .filter(
+                cls.game_state.IN([
+                    cls.GameState.WAITING_FOR_OPPONENT,
+                    cls.GameState.PREPARING_BOARD,
+                    cls.GameState.PLAYER_ONE_TURN,
+                    cls.GameState.PLAYER_TWO_TURN
+                ]))
+            .filter(
+                ndb.AND(
+                    cls.last_update <= one_hour_ago,
+                    cls.last_update > two_hour_ago)
+            )
+            .order(-cls.last_update)
+            .fetch()
+        )
+        return games
+
     def add_player(self, user):
+        if self.player_one == user.key:
+            raise endpoints.ConflictException('You cannot join your own game.')
         self.player_two = user.key
         self.game_state = Game.GameState.PREPARING_BOARD
         self.put()

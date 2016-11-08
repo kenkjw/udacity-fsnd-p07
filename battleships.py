@@ -50,7 +50,7 @@ class BattleshipApi(remote.Service):
     @endpoints.method(request_message=USER_REQUEST,
                       response_message=StringMessage,
                       path='user',
-                      name='register_user',
+                      name='user_register',
                       http_method='POST')
     def register_user(self, request):
         """Create a User. Requires a unique username"""
@@ -97,7 +97,7 @@ class BattleshipApi(remote.Service):
     @endpoints.method(request_message=VOID_REQUEST,
                       response_message=GameListForm,
                       path='game/active',
-                      name='get_active_games',
+                      name='get_games_active',
                       http_method='GET')
     def get_user_games(self, request):
         auth_user = utils.get_auth_user()
