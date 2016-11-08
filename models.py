@@ -1,3 +1,4 @@
+import endpoints
 from protorpc import messages
 from google.appengine.ext import ndb
 from google.appengine.ext.ndb import msgprop
@@ -70,7 +71,9 @@ class Game(ndb.Model):
         game = Game(
                 player_one=user.key,
                 game_state=cls.GameState.WAITING_FOR_OPPONENT,
-                game_settings=settings
+                game_settings=settings,
+                game_board={},
+                game_history=[]
             )
         game.put()
         return game
@@ -126,6 +129,81 @@ class Game(ndb.Model):
 
     def has_player(self, user):
         return self.player_one == user.key or self.player_two == user.key
+
+    def player_place_ships(self, user, form):
+        if not self.game_state == Game.GameState.PREPARING_BOARD:
+            raise endpoints.ForbiddenException(
+                    'Game is not accepting ship placements')
+        # Validate ship placements
+        ships = []
+        ship_coord_set = set()
+        ship_counts = {
+            2: self.game_settings.ship_2,
+            3: self.game_settings.ship_3,
+            4: self.game_settings.ship_4,
+            5: self.game_settings.ship_5
+        }
+        total_coords = (ship_counts[2] * 2 + ship_counts[3] * 3 +
+                        ship_counts[4] * 4 + ship_counts[5] * 5)
+
+        for ship in form.ships:
+            if ship.length not in [2, 3, 4, 5]:
+                raise endpoints.BadRequestException('Invalid ship length.')
+            ship_counts[ship.length] -= 1
+            x = ship.position.x
+            y = ship.position.y
+            max_x = not ship.vertical and x+ship.length-1 or x
+            max_y = ship.vertical and y+ship.length-1 or y
+            if (x < 1 or max_x > self.game_settings.width or
+                    y < 1 or max_y > self.game_settings.height):
+                raise endpoints.BadRequestException('Ship out of bounds.')
+
+            s = []
+            for i in xrange(x, max_x+1):
+                for j in xrange(y, max_y+1):
+                    coord = "{},{}".format(i, j)
+                    s.append(coord)
+                    ship_coord_set.add(coord)
+            ships.append(s)
+
+        # Check for correct number of ships
+        if (ship_counts[2] or ship_counts[3] or
+                ship_counts[4] or ship_counts[5]):
+            raise endpoints.BadRequestException('Invalid ship count.')
+
+        # Check for ship collisions
+        if len(ship_coord_set) != total_coords:
+            raise endpoints.BadRequestException('Ships cannot overlap.')
+
+        # Save the ships to game board
+        if self.player_one == user.key:
+            if 'player_one' in self.game_board:
+                raise endpoints.ForbiddenException(
+                    'You have already submitted your ships.')
+            self.game_board['player_one'] = ships
+        elif self.player_two == user.key:
+            if 'player_two' in self.game_board:
+                raise endpoints.ForbiddenException(
+                    'You have already submitted your ships.')
+            self.game_board['player_two'] = ships
+        else:
+            raise endpoints.UnauthorizedException(
+                'You are not a player of this game.')
+
+        if 'player_one' in self.game_board and 'player_two' in self.game_board:
+            self.game_state = Game.GameState.PLAYER_ONE_TURN
+            message = StringMessage(
+                message=("Your ship placement has been set."
+                         " Game is ready to begin"))
+        else:
+            message = StringMessage(
+                message=("Your ship placement has been set."
+                         " Waiting for opponent to place ships."))
+        self.put()
+        return message
+
+    def player_action(self, user, form):
+        return
 
     def cancel_game(self):
         self.game_state = Game.GameState.GAME_CANCELLED

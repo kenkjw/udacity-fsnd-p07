@@ -115,16 +115,23 @@ class BattleshipApi(remote.Service):
                       path='game/{game_key}/ships',
                       name='game_place_ships',
                       http_method='POST')
-    def place_ships(self, request):
-        pass
+    def player_place_ships(self, request):
+        auth_user = endpoints.get_current_user()
+        user = User.by_email(auth_user.email())
+        game = Game.by_urlsafe(request.game_key)
+
+        message = game.player_place_ships(user, request)
+        return message
 
     @endpoints.method(request_message=POSITION_REQUEST,
                       response_message=StringMessage,
-                      path='game/{game_key}/fire',
-                      name='game_fire',
+                      path='game/{game_key}/action',
+                      name='game_action',
                       http_method='POST')
-    def post_turn(self, request):
-        pass
+    def player_action(self, request):
+        auth_user = endpoints.get_current_user()
+        user = User.by_email(auth_user.email())
+        game = Game.by_urlsafe(request.game_key)
 
     def get_user_rankings(self, request):
         pass
