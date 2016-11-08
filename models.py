@@ -8,7 +8,11 @@ import json
 class User(ndb.Model):
     """User profile"""
     name = ndb.StringProperty(required=True)
-    email = ndb.StringProperty()
+    email = ndb.StringProperty(required=True)
+    games_won = ndb.IntegerProperty(required=True, default=0)
+    games_played = ndb.IntegerProperty(required=True, default=0)
+    win_ratio = ndb.ComputedProperty(
+        lambda u: 1. * u.games_played and 1. * u.games_won / u.games_played)
 
     @classmethod
     def create_user(cls, auth_user, user_name):
@@ -28,6 +32,19 @@ class User(ndb.Model):
     def by_email(cls, email):
         user = cls.query(cls.email == email).get()
         return user
+
+    @classmethod
+    def get_user_rankings(cls, limit=10):
+        rankings = cls.query().order(-cls.win_ratio).fetch(limit)
+        form_rankings = []
+        for ranking in rankings:
+            form_rankings.append(Ranking(
+                    player=ranking.name,
+                    games_won=ranking.games_won,
+                    games_played=ranking.games_played,
+                    win_ratio=ranking.win_ratio
+                ))
+        return RankingForm(rankings=form_rankings)
 
 
 class Game(ndb.Model):
@@ -161,7 +178,7 @@ class Game(ndb.Model):
             s = []
             for i in xrange(x, max_x+1):
                 for j in xrange(y, max_y+1):
-                    coord = "{},{}".format(i, j)
+                    coord = '{},{}'.format(i, j)
                     s.append(coord)
                     ship_coord_set.add(coord)
             ships.append(s)
@@ -178,12 +195,12 @@ class Game(ndb.Model):
         # Save the ships to game board
         if self.player_one == user.key:
             if 'player_one' in self.game_board:
-                raise endpoints.ForbiddenException(
+                raise endpoints.ConflictException(
                     'You have already submitted your ships.')
             self.game_board['player_one'] = ships
         elif self.player_two == user.key:
             if 'player_two' in self.game_board:
-                raise endpoints.ForbiddenException(
+                raise endpoints.ConflictException(
                     'You have already submitted your ships.')
             self.game_board['player_two'] = ships
         else:
@@ -193,17 +210,114 @@ class Game(ndb.Model):
         if 'player_one' in self.game_board and 'player_two' in self.game_board:
             self.game_state = Game.GameState.PLAYER_ONE_TURN
             message = StringMessage(
-                message=("Your ship placement has been set."
-                         " Game is ready to begin"))
+                message=('Your ship placement has been set.'
+                         ' Game is ready to begin'))
         else:
             message = StringMessage(
-                message=("Your ship placement has been set."
-                         " Waiting for opponent to place ships."))
+                message=('Your ship placement has been set.'
+                         ' Waiting for opponent to place ships.'))
         self.put()
         return message
 
     def player_action(self, user, form):
-        return
+        if self.game_state not in [Game.GameState.PLAYER_ONE_TURN,
+                                   Game.GameState.PLAYER_TWO_TURN]:
+            raise endpoints.ForbiddenException(
+                    'Game is not in play.')
+
+        if self.player_one == user.key:
+            ships = self.game_board['player_two']
+            if self.game_state == Game.GameState.PLAYER_TWO_TURN:
+                raise endpoints.ForbiddenException(
+                    'It is not your turn.')
+        elif self.player_two == user.key:
+            ships = self.game_board['player_one']
+            if self.game_state == Game.GameState.PLAYER_ONE_TURN:
+                raise endpoints.ForbiddenException(
+                    'It is not your turn.')
+        else:
+            raise endpoints.UnauthorizedException(
+                'You are not a player of this game.')
+
+        x = form.x
+        y = form.y
+        if (x < 1 or x > self.game_settings.width or
+                y < 1 or y > self.game_settings.height):
+            raise endpoints.BadRequestException('Coordinates out of bounds.')
+
+        coord = '{},{}'.format(x, y)
+        message = StringMessage()
+        hit = False
+        for ship in ships:
+            if coord in ship:
+                hit = True
+                ship.remove(coord)
+                if(len(ship) == 0):
+                    message.message = 'Ship sunk!'
+                else:
+                    message.message = 'Hit!'
+                break
+        if not hit:
+            message.message = 'Miss.'
+
+        # Switch turns
+        if self.game_state == Game.GameState.PLAYER_ONE_TURN:
+            self.game_state = Game.GameState.PLAYER_TWO_TURN
+        else:
+            self.game_state = Game.GameState.PLAYER_ONE_TURN
+        self.game_history.append([user.name, coord, message.message])
+
+        self.put()
+
+        # Check remaining ships
+        ships_remaining = 0
+        for ship in ships:
+            if len(ship) > 0:
+                ships_remaining += 1
+
+        if ships_remaining == 0:  # 0 remaining ships, game is over.
+            message.message += ' You have won!'
+            self.record_win(user.key)
+        else:  # Game not over. Switch turns.
+            message.message += ' {} ship{} remaining.'.format(
+                ships_remaining,
+                's' if ships_remaining > 1 else ''
+                )
+
+        return message
+
+    @ndb.transactional(xg=True)
+    def record_win(self, winner):
+        # Get a new game instance in context of transaction
+        game = self.key.get()
+        p1 = game.player_one.get()
+        p2 = game.player_two.get()
+        p1.games_played += 1
+        p2.games_played += 1
+
+        game.player_winner = winner
+
+        if game.player_winner == game.player_one:
+            p1.games_won += 1
+        else:
+            p2.games_won += 1
+        game.game_state = Game.GameState.GAME_COMPLETE
+        game.put()
+        p1.put()
+        p2.put()
+
+    def get_history(self):
+        game_actions = []
+        for action in self.game_history:
+            game_action = GameAction()
+            position = action[1].split(',')
+            game_action.player = action[0]
+            game_action.position = Position(
+                x=int(position[0]),
+                y=int(position[1]))
+            game_action.result = action[2]
+            game_actions.append(game_action)
+        return GameHistoryForm(actions=game_actions)
 
     def cancel_game(self):
         self.game_state = Game.GameState.GAME_CANCELLED
@@ -255,6 +369,27 @@ class ShipPlacement(messages.Message):
 
 class ShipPlacementForm(messages.Message):
     ships = messages.MessageField(ShipPlacement, 1, repeated=True)
+
+
+class GameAction(messages.Message):
+    player = messages.StringField(1, required=True)
+    position = messages.MessageField(Position, 2, required=True)
+    result = messages.StringField(3, required=True)
+
+
+class GameHistoryForm(messages.Message):
+    actions = messages.MessageField(GameAction, 1, repeated=True)
+
+
+class Ranking(messages.Message):
+    player = messages.StringField(1, required=True)
+    games_won = messages.IntegerField(2, required=True)
+    games_played = messages.IntegerField(3, required=True)
+    win_ratio = messages.FloatField(4, required=True)
+
+
+class RankingForm(messages.Message):
+    rankings = messages.MessageField(Ranking, 1, repeated=True)
 
 
 class StringMessage(messages.Message):

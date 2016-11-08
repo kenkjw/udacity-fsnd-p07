@@ -3,11 +3,14 @@ from protorpc import message_types
 from protorpc import messages
 from protorpc import remote
 
+import utils
 from models import Game
+from models import GameHistoryForm
 from models import GameInfoForm
 from models import GameListForm
 from models import NewGameForm
 from models import Position
+from models import RankingForm
 from models import RegisterUserForm
 from models import ShipPlacementForm
 from models import StringMessage
@@ -22,7 +25,10 @@ NEW_GAME_REQUEST = endpoints.ResourceContainer(NewGameForm)
 VOID_REQUEST = endpoints.ResourceContainer(message_types.VoidMessage)
 LIST_GAMES_REQUEST = endpoints.ResourceContainer(
     message_types.VoidMessage,
-    limit=messages.IntegerField(1, default=10))
+    state=messages.EnumField(
+        Game.GameState, 1,
+        default=Game.GameState.WAITING_FOR_OPPONENT),
+    limit=messages.IntegerField(2, default=10))
 GAME_REQUEST = endpoints.ResourceContainer(
     message_types.VoidMessage,
     game_key=messages.StringField(1, required=True))
@@ -46,9 +52,9 @@ class BattleshipApi(remote.Service):
                       path='user',
                       name='register_user',
                       http_method='POST')
-    def create_user(self, request):
+    def register_user(self, request):
         """Create a User. Requires a unique username"""
-        auth_user = endpoints.get_current_user()
+        auth_user = utils.get_auth_user()
         user = User.create_user(auth_user, request.user_name)
         return StringMessage(message='User {} created!'.format(
                 user.name))
@@ -59,7 +65,7 @@ class BattleshipApi(remote.Service):
                       name='game_new',
                       http_method='POST')
     def new_game(self, request):
-        auth_user = endpoints.get_current_user()
+        auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
         game = Game.create_game(user, request)
         return game.to_form()
@@ -67,11 +73,12 @@ class BattleshipApi(remote.Service):
     @endpoints.method(request_message=LIST_GAMES_REQUEST,
                       response_message=GameListForm,
                       path='game/open',
-                      name='get_open_games',
+                      name='get_games_list',
                       http_method='GET')
-    def list_open_games(self, request):
+    def get_games_list(self, request):
+        auth_user = utils.get_auth_user()
         games = Game.by_game_state(
-            Game.GameState.WAITING_FOR_OPPONENT,
+            request.state,
             request.limit)
         return GameListForm(games=[game.to_form() for game in games])
 
@@ -81,7 +88,7 @@ class BattleshipApi(remote.Service):
                       name='game_join',
                       http_method='POST')
     def join_game(self, request):
-        auth_user = endpoints.get_current_user()
+        auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
         game = Game.by_urlsafe(request.game_key)
         game.add_player(user)
@@ -93,7 +100,7 @@ class BattleshipApi(remote.Service):
                       name='get_active_games',
                       http_method='GET')
     def get_user_games(self, request):
-        auth_user = endpoints.get_current_user()
+        auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
         games = Game.get_active_games(user)
         return GameListForm(games=[game.to_form() for game in games])
@@ -102,9 +109,9 @@ class BattleshipApi(remote.Service):
                       response_message=GameInfoForm,
                       path='game/{game_key}/cancel',
                       name='game_cancel',
-                      http_method='POST')
+                      http_method='DELETE')
     def cancel_game(self, request):
-        auth_user = endpoints.get_current_user()
+        auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
         game = Game.by_urlsafe(request.game_key)
         game.cancel_game()
@@ -114,9 +121,9 @@ class BattleshipApi(remote.Service):
                       response_message=StringMessage,
                       path='game/{game_key}/ships',
                       name='game_place_ships',
-                      http_method='POST')
+                      http_method='PUT')
     def player_place_ships(self, request):
-        auth_user = endpoints.get_current_user()
+        auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
         game = Game.by_urlsafe(request.game_key)
 
@@ -129,15 +136,33 @@ class BattleshipApi(remote.Service):
                       name='game_action',
                       http_method='POST')
     def player_action(self, request):
-        auth_user = endpoints.get_current_user()
+        auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
         game = Game.by_urlsafe(request.game_key)
 
-    def get_user_rankings(self, request):
-        pass
+        message = game.player_action(user, request)
+        return message
 
+    @endpoints.method(request_message=VOID_REQUEST,
+                      response_message=RankingForm,
+                      path='user/ranking',
+                      name='get_user_rankings',
+                      http_method='GET')
+    def get_user_rankings(self, request):
+        auth_user = utils.get_auth_user()
+        user = User.by_email(auth_user.email())
+        return User.get_user_rankings()
+
+    @endpoints.method(request_message=GAME_REQUEST,
+                      response_message=GameHistoryForm,
+                      path='game/{game_key}/history',
+                      name='get_game_history',
+                      http_method='GET')
     def get_game_history(self, request):
-        pass
+        auth_user = utils.get_auth_user()
+        user = User.by_email(auth_user.email())
+        game = Game.by_urlsafe(request.game_key)
+        return game.get_history()
 
     @endpoints.method(request_message=GAME_REQUEST,
                       response_message=GameInfoForm,
@@ -145,6 +170,7 @@ class BattleshipApi(remote.Service):
                       name='get_game',
                       http_method='GET')
     def get_game(self, request):
+        auth_user = utils.get_auth_user()
         game = Game.by_urlsafe(request.game_key)
         return game.to_form()
 
