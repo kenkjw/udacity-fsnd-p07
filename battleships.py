@@ -124,7 +124,11 @@ class BattleshipApi(remote.Service):
         """ Sets an active game to cancelled """
         auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
+
         game = Game.by_urlsafe(request.game_key)
+        if not game.has_player(user):
+            raise endpoints.UnauthorizedException(
+                'You cannot cancel a game that you are not participating in.')
         return game.cancel_game().to_form()
 
     @endpoints.method(request_message=SHIP_PLACEMENT_REQUEST,

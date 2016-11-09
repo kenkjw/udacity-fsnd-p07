@@ -217,7 +217,6 @@ class Game(ndb.Model):
         """ Search for active games that have not been updated in more than
         an hour. Limit to games """
         one_hour_ago = datetime.datetime.now() + datetime.timedelta(hours=-1)
-        two_hour_ago = datetime.datetime.now() + datetime.timedelta(hours=-2)
         games = (
             cls.query()
             .filter(
@@ -227,11 +226,7 @@ class Game(ndb.Model):
                     cls.GameState.PLAYER_ONE_TURN,
                     cls.GameState.PLAYER_TWO_TURN
                 ]))
-            .filter(
-                ndb.AND(
-                    cls.last_update <= one_hour_ago,
-                    cls.last_update > two_hour_ago)
-            )
+            .filter(cls.last_update <= one_hour_ago)
             .order(-cls.last_update)
             .fetch()
         )
