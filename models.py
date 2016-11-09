@@ -1,13 +1,24 @@
+"""models.py - This file contains the class definitions for the Datastore
+entities used by the BattleShips Game. """
+
 import datetime
 import endpoints
 from protorpc import messages
 from google.appengine.ext import ndb
 from google.appengine.ext.ndb import msgprop
-import json
 
 
 class User(ndb.Model):
-    """User profile"""
+    """ Google AppEngine Datastore Entity representing a User.
+
+    Properties:
+        name: A string property representing the username of the User.
+        email: A string property representing the user's email.
+        games_won: An integer property count of the user's total wins.
+        games_played: An integer property count of the user's total
+            completed games.
+        win_ratio: A computed property float value of games_won/games_played.
+    """
     name = ndb.StringProperty(required=True)
     email = ndb.StringProperty(required=True)
     games_won = ndb.IntegerProperty(required=True, default=0)
@@ -17,7 +28,7 @@ class User(ndb.Model):
 
     @classmethod
     def create_user(cls, auth_user, user_name):
-
+        """ Register a username to a user's email address"""
         if User.query(User.email == auth_user.email()).get():
             raise endpoints.ConflictException(
                     'You have already registered!')
@@ -39,7 +50,11 @@ class User(ndb.Model):
 
     @classmethod
     def get_user_rankings(cls, limit=10):
+        """ Returns a RankingForm of a User's match history """
+        # Query for users ordering by win ratio
         rankings = cls.query().order(-cls.win_ratio).fetch(limit)
+
+        # Create the form
         form_rankings = []
         for ranking in rankings:
             form_rankings.append(Ranking(
@@ -48,19 +63,61 @@ class User(ndb.Model):
                     games_played=ranking.games_played,
                     win_ratio=ranking.win_ratio
                 ))
-        return RankingForm(rankings=form_rankings)
+        return form_rankings
 
 
 class Game(ndb.Model):
+    """ Google AppEngine Datastore Entity representing a Battleship match.
+
+    Properties:
+        player_one: ndb Key to the player that hosted the game.
+        player_two: ndb Key to the player that joined the game.
+        game_state: GameState representing the state of the game.
+        game_settings: The BoardRules set for the game at creation.
+        game_board: JsonProperty that holds the players' ship positions.
+            A dictionary in the form:
+            {
+                'player_one': [{ship list}]
+                'player_two': [{ship list}]
+            }
+                ship_list: A list of all the ships in the players fleet.
+                    A ship is a list of string representations of each
+                    coordinate that the ship occupies.
+        game_history: JsonProperty that holds the history of players' guesses.
+            A python list of each action in the form:
+                [{user_name},{coords},{result}]
+                    user_name: string of the name of user who made action
+                    coords: string in form 'x,y' of user's action
+                    result: string result of the action. Typically hit or miss.
+        player_winner: ndb Key to the winner of the match.
+        last_update: A datetime of the last time the game was updated.
+    """
     class GameState(messages.Enum):
+        """ Enum for representing the different states of the game. """
+        # Game has just been created and is waiting for second player.
         WAITING_FOR_OPPONENT = 0
+        # Second player has just joined the game. Waiting for ship placements.
         PREPARING_BOARD = 1
+        # Waiting for player one to guess.
         PLAYER_ONE_TURN = 2
+        # Waiting for player two to guess.
         PLAYER_TWO_TURN = 3
+        # A player has sunk all their opponent's ships.
         GAME_COMPLETE = 4
+        # A player has cancelled the game.
         GAME_CANCELLED = 5
 
     class BoardRules(messages.Message):
+        """ Message that describes the rules of a game.
+
+        Properties:
+            width: The width of the game board.
+            height: The height of the game board.
+            ship_2: The number of ships of length 2
+            ship_3: The number of ships of length 3
+            ship_4: The number of ships of length 4
+            ship_5: The number of ships of length 5
+        """
         width = messages.IntegerField(1, default=10)
         height = messages.IntegerField(2, default=10)
         ship_2 = messages.IntegerField(3, default=1)
@@ -79,6 +136,16 @@ class Game(ndb.Model):
 
     @classmethod
     def create_game(cls, user, form):
+        """ Creates a new Game.
+
+        Args:
+            user: User that is creating the game
+            form: NewGameForm containing the game's rules
+
+        Returns:
+            Returns the newly created Game.
+        """
+
         settings = form.get_assigned_value('rules') or cls.BoardRules()
 
         # Fix an issue with default values not saving until assigned.
@@ -101,6 +168,7 @@ class Game(ndb.Model):
 
     @classmethod
     def by_urlsafe(cls, urlsafe):
+        """ Search for a game by its urlsafe key """
         try:
             return ndb.Key(urlsafe=urlsafe).get()
         except TypeError:
@@ -113,6 +181,7 @@ class Game(ndb.Model):
 
     @classmethod
     def by_game_state(cls, game_state, limit=10):
+        """ Search for games by their game state """
         games = (
                 cls.query()
                 .filter(cls.game_state == game_state)
@@ -123,6 +192,7 @@ class Game(ndb.Model):
 
     @classmethod
     def get_active_games(cls, user, limit=10):
+        """ Search for games that are not complete or cancelled. """
         games = (
             cls.query()
             .filter(ndb.OR(
@@ -144,8 +214,10 @@ class Game(ndb.Model):
 
     @classmethod
     def get_inactive_games(cls):
-        one_hour_ago = datetime.datetime.now() + datetime.timedelta(minutes=0)
-        two_hour_ago = datetime.datetime.now() + datetime.timedelta(minutes=-3)
+        """ Search for active games that have not been updated in more than
+        an hour. Limit to games """
+        one_hour_ago = datetime.datetime.now() + datetime.timedelta(hours=-1)
+        two_hour_ago = datetime.datetime.now() + datetime.timedelta(hours=-2)
         games = (
             cls.query()
             .filter(
@@ -166,6 +238,10 @@ class Game(ndb.Model):
         return games
 
     def add_player(self, user):
+        """ Add a second player to a game. """
+        if not self.game_state == Game.GameState.WAITING_FOR_OPPONENT:
+            raise endpoints.ForbiddenException(
+                    'Game is not accepting additional players.')
         if self.player_one == user.key:
             raise endpoints.ConflictException('You cannot join your own game.')
         self.player_two = user.key
@@ -174,41 +250,70 @@ class Game(ndb.Model):
         return self
 
     def has_player(self, user):
+        """ Check that a user is one of the two players of the game. """
         return self.player_one == user.key or self.player_two == user.key
 
     def player_place_ships(self, user, form):
+        """ Save a user's ship placements
+
+        Args:
+            user: User that owns the ship
+            form: ShipPlacementForm of the ships
+
+        Returns:
+            A StringMessage of the resulting state of the game.
+
+        Raises:
+            ForbiddenException:
+                -If the game is not in PREPARING_BOARD state.
+            BadRequestException:
+                -If the ship data is invalid.
+            ConflictException:
+                -If the user has already submitted ships.
+            UnauthorizedException:
+                -If the user is not a player of the game.
+        """
+        # Check that the game state is correct
         if not self.game_state == Game.GameState.PREPARING_BOARD:
             raise endpoints.ForbiddenException(
                     'Game is not accepting ship placements')
-        # Validate ship placements
+
         ships = []
+        # Keep a set of coordinates to check for overlap.
         ship_coord_set = set()
+        # The count of each ship length
         ship_counts = {
             2: self.game_settings.ship_2,
             3: self.game_settings.ship_3,
             4: self.game_settings.ship_4,
             5: self.game_settings.ship_5
         }
+        # The total unique coordinates of ships.
         total_coords = (ship_counts[2] * 2 + ship_counts[3] * 3 +
                         ship_counts[4] * 4 + ship_counts[5] * 5)
 
         for ship in form.ships:
             if ship.length not in [2, 3, 4, 5]:
                 raise endpoints.BadRequestException('Invalid ship length.')
+            # Decrement ship count to keep track of total number of ships
             ship_counts[ship.length] -= 1
             x = ship.position.x
             y = ship.position.y
+
+            # Check the ship lies within the board bounds.
             max_x = not ship.vertical and x+ship.length-1 or x
             max_y = ship.vertical and y+ship.length-1 or y
             if (x < 1 or max_x > self.game_settings.width or
                     y < 1 or max_y > self.game_settings.height):
                 raise endpoints.BadRequestException('Ship out of bounds.')
 
+            # Save the ship as an array of strings of their coordinates.
             s = []
             for i in xrange(x, max_x+1):
                 for j in xrange(y, max_y+1):
                     coord = '{},{}'.format(i, j)
                     s.append(coord)
+                    # Add the string to set for checking overlap
                     ship_coord_set.add(coord)
             ships.append(s)
 
@@ -224,24 +329,29 @@ class Game(ndb.Model):
         # Save the ships to game board
         if self.player_one == user.key:
             if 'player_one' in self.game_board:
+                # User has already submitted
                 raise endpoints.ConflictException(
                     'You have already submitted your ships.')
             self.game_board['player_one'] = ships
         elif self.player_two == user.key:
             if 'player_two' in self.game_board:
+                # User has already submitted
                 raise endpoints.ConflictException(
                     'You have already submitted your ships.')
             self.game_board['player_two'] = ships
         else:
+            # User wasn't a player of the game
             raise endpoints.UnauthorizedException(
                 'You are not a player of this game.')
 
         if 'player_one' in self.game_board and 'player_two' in self.game_board:
+            # Both players have submitted their ships. Game begins.
             self.game_state = Game.GameState.PLAYER_ONE_TURN
             message = StringMessage(
                 message=('Your ship placement has been set.'
                          ' Game is ready to begin'))
         else:
+            # Only one player has submitted.
             message = StringMessage(
                 message=('Your ship placement has been set.'
                          ' Waiting for opponent to place ships.'))
@@ -249,11 +359,30 @@ class Game(ndb.Model):
         return message
 
     def player_action(self, user, form):
+        """ Record a player's guess.
+
+        Args:
+            user: User taking the guess.
+            form: GameAction of the user's guess.
+
+        Returns:
+            A StringMessage of the result of the guess.
+
+        Raises:
+            ForbiddenException:
+                -If the game is in wrong state.
+            UnauthorizedException:
+                -If the user is not a player of the game.
+            BadRequestException:
+                -If the coordinates are out of bounds.
+
+        """
+        # Check that game state is correct.
         if self.game_state not in [Game.GameState.PLAYER_ONE_TURN,
                                    Game.GameState.PLAYER_TWO_TURN]:
             raise endpoints.ForbiddenException(
                     'Game is not in play.')
-
+        # Check that it is correct player and get opposite player's ships.
         if self.player_one == user.key:
             ships = self.game_board['player_two']
             if self.game_state == Game.GameState.PLAYER_TWO_TURN:
@@ -265,28 +394,38 @@ class Game(ndb.Model):
                 raise endpoints.ForbiddenException(
                     'It is not your turn.')
         else:
+            # User is not a player of the game.
             raise endpoints.UnauthorizedException(
                 'You are not a player of this game.')
 
         x = form.x
         y = form.y
+        # Check that guess is inbounds.
         if (x < 1 or x > self.game_settings.width or
                 y < 1 or y > self.game_settings.height):
             raise endpoints.BadRequestException('Coordinates out of bounds.')
 
+        # String representation of the guess.
         coord = '{},{}'.format(x, y)
         message = StringMessage()
+
+        # Check guess against ships.
         hit = False
         for ship in ships:
             if coord in ship:
+                # Guess matches a ship coordinate.
                 hit = True
+                # Remove coordinate from ship.
                 ship.remove(coord)
+                # Check if ship has remaining coordinates.
                 if(len(ship) == 0):
+                    # Ship has no remaining coordinates.
                     message.message = 'Ship sunk!'
                 else:
                     message.message = 'Hit!'
                 break
         if not hit:
+            # Ship was not hit.
             message.message = 'Miss.'
 
         # Switch turns
@@ -294,6 +433,8 @@ class Game(ndb.Model):
             self.game_state = Game.GameState.PLAYER_TWO_TURN
         else:
             self.game_state = Game.GameState.PLAYER_ONE_TURN
+
+        # Save the result into the game's history
         self.game_history.append([user.name, coord, message.message])
 
         self.put()
@@ -307,7 +448,7 @@ class Game(ndb.Model):
         if ships_remaining == 0:  # 0 remaining ships, game is over.
             message.message += ' You have won!'
             self.record_win(user.key)
-        else:  # Game not over. Switch turns.
+        else:  # Game not over.
             message.message += ' {} ship{} remaining.'.format(
                 ships_remaining,
                 's' if ships_remaining > 1 else ''
@@ -317,6 +458,8 @@ class Game(ndb.Model):
 
     @ndb.transactional(xg=True)
     def record_win(self, winner):
+        """ Transaction for setting game to complete and updating
+        player records """
         # Get a new game instance in context of transaction
         game = self.key.get()
         p1 = game.player_one.get()
@@ -336,6 +479,7 @@ class Game(ndb.Model):
         p2.put()
 
     def get_history(self):
+        """ Get the player action history of the game. """
         game_actions = []
         for action in self.game_history:
             game_action = GameAction()
@@ -346,15 +490,19 @@ class Game(ndb.Model):
                 y=int(position[1]))
             game_action.result = action[2]
             game_actions.append(game_action)
-        return GameHistoryForm(actions=game_actions)
+        return game_actions
 
     def cancel_game(self):
+        """ Cancels a game in progress """
+        if self.game_state == Game.GameState.GAME_COMPLETE:
+            raise endpoints.ForbiddenException(
+                    'Cannot cancel a completed game.')
         self.game_state = Game.GameState.GAME_CANCELLED
         self.put()
         return self
 
     def to_form(self):
-        """Returns a GameForm representation of the Game"""
+        """Returns a GameInfoForm representation of the Game"""
         form = GameInfoForm()
         form.urlsafe_key = self.key.urlsafe()
         form.player_one = self.player_one.get().name
@@ -365,14 +513,17 @@ class Game(ndb.Model):
 
 
 class RegisterUserForm(messages.Message):
+    """ Form used when registering a user's name """
     user_name = messages.StringField(1, required=True)
 
 
 class NewGameForm(messages.Message):
+    """ Form used when creating a new game """
     rules = messages.MessageField(Game.BoardRules, 1)
 
 
 class GameInfoForm(messages.Message):
+    """ Form used when returning a game's info """
     urlsafe_key = messages.StringField(1)
     player_one = messages.StringField(2)
     player_two = messages.StringField(3)
@@ -382,35 +533,48 @@ class GameInfoForm(messages.Message):
 
 
 class GameListForm(messages.Message):
+    """ Form used when returning a list of games' info """
     games = messages.MessageField(GameInfoForm, 1, repeated=True)
 
 
 class Position(messages.Message):
+    """ Message representing coordinates """
     x = messages.IntegerField(1, required=True)
     y = messages.IntegerField(2, required=True)
 
 
 class ShipPlacement(messages.Message):
+    """ Message representing placement of a ship
+
+    Properties:
+        position: Position message of the ship's upper-left position.
+        length: The length of the ship. Should be between 2 and 5.
+        vertical: Orientation of ship. True=Vertical, False=Horizontal.
+    """
     position = messages.MessageField(Position, 1, required=True)
     length = messages.IntegerField(2, required=True)
     vertical = messages.BooleanField(3, default=False)
 
 
 class ShipPlacementForm(messages.Message):
+    """ Form used for a list of ShipPlacements """
     ships = messages.MessageField(ShipPlacement, 1, repeated=True)
 
 
 class GameAction(messages.Message):
+    """ Message representing the result of a user's guess """
     player = messages.StringField(1, required=True)
     position = messages.MessageField(Position, 2, required=True)
     result = messages.StringField(3, required=True)
 
 
 class GameHistoryForm(messages.Message):
+    """ Form used to list the history of GameActions of a game """
     actions = messages.MessageField(GameAction, 1, repeated=True)
 
 
 class Ranking(messages.Message):
+    """ Message representing a player's match win/played history """
     player = messages.StringField(1, required=True)
     games_won = messages.IntegerField(2, required=True)
     games_played = messages.IntegerField(3, required=True)
@@ -418,6 +582,7 @@ class Ranking(messages.Message):
 
 
 class RankingForm(messages.Message):
+    """ Form used to list multiple users' Rankings """
     rankings = messages.MessageField(Ranking, 1, repeated=True)
 
 
