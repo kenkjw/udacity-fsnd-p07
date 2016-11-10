@@ -375,7 +375,7 @@ class Game(ndb.Model):
 
         Args:
             user: User taking the guess.
-            form: GameAction of the user's guess.
+            form: Position of the user's guess.
 
         Returns:
             A StringMessage of the result of the guess.
@@ -494,7 +494,7 @@ class Game(ndb.Model):
         """ Get the player guess history of the game. """
         game_guesses = []
         for guess in self.game_history:
-            game_guess = GameAction()
+            game_guess = GameGuess()
             position = guess[1].split(',')
             game_guess.player = guess[0]
             game_guess.position = Position(
@@ -573,7 +573,7 @@ class ShipPlacementForm(messages.Message):
     ships = messages.MessageField(ShipPlacement, 1, repeated=True)
 
 
-class GameAction(messages.Message):
+class GameGuess(messages.Message):
     """ Message representing the result of a user's guess """
     player = messages.StringField(1, required=True)
     position = messages.MessageField(Position, 2, required=True)
@@ -581,8 +581,8 @@ class GameAction(messages.Message):
 
 
 class GameHistoryForm(messages.Message):
-    """ Form used to list the history of GameActions of a game """
-    guesses = messages.MessageField(GameAction, 1, repeated=True)
+    """ Form used to list the history of GameGuesses of a game """
+    guesses = messages.MessageField(GameGuess, 1, repeated=True)
 
 
 class Ranking(messages.Message):
