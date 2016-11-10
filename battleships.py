@@ -55,7 +55,7 @@ class BattleshipApi(remote.Service):
                       path='user',
                       name='user_register',
                       http_method='POST')
-    def register_user(self, request):
+    def user_register(self, request):
         """ Create a User. Requires a unique username """
         auth_user = utils.get_auth_user()
         user = User.create_user(auth_user, request.user_name)
@@ -67,7 +67,7 @@ class BattleshipApi(remote.Service):
                       path='game',
                       name='game_new',
                       http_method='POST')
-    def new_game(self, request):
+    def game_new(self, request):
         """ Creates a new game """
         # Check the user is authenticated
         auth_user = utils.get_auth_user()
@@ -95,7 +95,7 @@ class BattleshipApi(remote.Service):
                       path='game/{game_key}/join',
                       name='game_join',
                       http_method='POST')
-    def join_game(self, request):
+    def game_join(self, request):
         """ Joins the current user into a game """
         auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
@@ -106,7 +106,7 @@ class BattleshipApi(remote.Service):
     @endpoints.method(request_message=VOID_REQUEST,
                       response_message=GameListForm,
                       path='game/active',
-                      name='get_games_active',
+                      name='get_user_games',
                       http_method='GET')
     def get_user_games(self, request):
         """ Gets a list of the user's games that are active """
@@ -120,7 +120,7 @@ class BattleshipApi(remote.Service):
                       path='game/{game_key}/cancel',
                       name='game_cancel',
                       http_method='DELETE')
-    def cancel_game(self, request):
+    def game_cancel(self, request):
         """ Sets an active game to cancelled """
         auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
@@ -136,7 +136,7 @@ class BattleshipApi(remote.Service):
                       path='game/{game_key}/ships',
                       name='game_place_ships',
                       http_method='PUT')
-    def player_place_ships(self, request):
+    def game_place_ships(self, request):
         """ Have a user submit their ship placements """
         auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
@@ -150,7 +150,7 @@ class BattleshipApi(remote.Service):
                       path='game/{game_key}/action',
                       name='game_action',
                       http_method='POST')
-    def player_action(self, request):
+    def game_action(self, request):
         """ Have a user submit their guess """
         auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
