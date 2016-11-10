@@ -78,7 +78,7 @@ class BattleshipApi(remote.Service):
 
     @endpoints.method(request_message=LIST_GAMES_REQUEST,
                       response_message=GameListForm,
-                      path='game/open',
+                      path='game/list',
                       name='get_games_list',
                       http_method='GET')
     def get_games_list(self, request):
@@ -147,16 +147,16 @@ class BattleshipApi(remote.Service):
 
     @endpoints.method(request_message=POSITION_REQUEST,
                       response_message=StringMessage,
-                      path='game/{game_key}/action',
-                      name='game_action',
+                      path='game/{game_key}/guess',
+                      name='game_guess',
                       http_method='POST')
-    def game_action(self, request):
+    def game_guess(self, request):
         """ Have a user submit their guess """
         auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
         game = Game.by_urlsafe(request.game_key)
 
-        message = game.player_action(user, request)
+        message = game.player_guess(user, request)
         return message
 
     @endpoints.method(request_message=VOID_REQUEST,
@@ -180,7 +180,7 @@ class BattleshipApi(remote.Service):
         auth_user = utils.get_auth_user()
         user = User.by_email(auth_user.email())
         game = Game.by_urlsafe(request.game_key)
-        return GameHistoryForm(actions=game.get_history())
+        return GameHistoryForm(guesses=game.get_history())
 
     @endpoints.method(request_message=GAME_REQUEST,
                       response_message=GameInfoForm,

@@ -84,11 +84,11 @@ class Game(ndb.Model):
                     A ship is a list of string representations of each
                     coordinate that the ship occupies.
         game_history: JsonProperty that holds the history of players' guesses.
-            A python list of each action in the form:
+            A python list of each guess in the form:
                 [{user_name},{coords},{result}]
-                    user_name: string of the name of user who made action
-                    coords: string in form 'x,y' of user's action
-                    result: string result of the action. Typically hit or miss.
+                    user_name: string of the name of user who made guess
+                    coords: string in form 'x,y' of user's guess
+                    result: string result of the guess. Typically hit or miss.
         player_winner: ndb Key to the winner of the match.
         last_update: A datetime of the last time the game was updated.
     """
@@ -370,7 +370,7 @@ class Game(ndb.Model):
         self.put()
         return message
 
-    def player_action(self, user, form):
+    def player_guess(self, user, form):
         """ Record a player's guess.
 
         Args:
@@ -491,18 +491,18 @@ class Game(ndb.Model):
         p2.put()
 
     def get_history(self):
-        """ Get the player action history of the game. """
-        game_actions = []
-        for action in self.game_history:
-            game_action = GameAction()
-            position = action[1].split(',')
-            game_action.player = action[0]
-            game_action.position = Position(
+        """ Get the player guess history of the game. """
+        game_guesses = []
+        for guess in self.game_history:
+            game_guess = GameAction()
+            position = guess[1].split(',')
+            game_guess.player = guess[0]
+            game_guess.position = Position(
                 x=int(position[0]),
                 y=int(position[1]))
-            game_action.result = action[2]
-            game_actions.append(game_action)
-        return game_actions
+            game_guess.result = guess[2]
+            game_guesses.append(game_guess)
+        return game_guesses
 
     def cancel_game(self):
         """ Cancels a game in progress """
@@ -582,7 +582,7 @@ class GameAction(messages.Message):
 
 class GameHistoryForm(messages.Message):
     """ Form used to list the history of GameActions of a game """
-    actions = messages.MessageField(GameAction, 1, repeated=True)
+    guesses = messages.MessageField(GameAction, 1, repeated=True)
 
 
 class Ranking(messages.Message):
