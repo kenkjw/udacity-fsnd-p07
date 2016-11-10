@@ -111,12 +111,12 @@ class Game(ndb.Model):
         """ Message that describes the rules of a game.
 
         Properties:
-            width: The width of the game board.
-            height: The height of the game board.
-            ship_2: The number of ships of length 2
-            ship_3: The number of ships of length 3
-            ship_4: The number of ships of length 4
-            ship_5: The number of ships of length 5
+            width: The width of the game board. Must be between 8-20.
+            height: The height of the game board. Must be between 8-20.
+            ship_2: The number of ships of length 2. Must be between 0-5.
+            ship_3: The number of ships of length 3. Must be between 0-5.
+            ship_4: The number of ships of length 4. Must be between 0-5.
+            ship_5: The number of ships of length 5. Must be between 0-5.
         """
         width = messages.IntegerField(1, default=10)
         height = messages.IntegerField(2, default=10)
@@ -156,6 +156,23 @@ class Game(ndb.Model):
         settings.ship_4 = settings.ship_4
         settings.ship_5 = settings.ship_5
 
+        # Check that rules are valid
+        if (settings.width < 8 or
+                settings.width > 20 or
+                settings.height < 8 or
+                settings.height > 20):
+            raise endpoints.BadRequestException(
+                'Board dimensions must be between 8-20')
+        if (settings.ship_2 < 0 or
+                settings.ship_2 > 5 or
+                settings.ship_3 < 0 or
+                settings.ship_3 > 5 or
+                settings.ship_4 < 0 or
+                settings.ship_4 > 5 or
+                settings.ship_5 < 0 or
+                settings.ship_5 > 5):
+            raise endpoints.BadRequestException(
+                'Ship count must be between 0-5')
         game = Game(
                 player_one=user.key,
                 game_state=cls.GameState.WAITING_FOR_OPPONENT,
