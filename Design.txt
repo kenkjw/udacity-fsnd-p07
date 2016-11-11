@@ -1,0 +1,53 @@
+#Design Decisions
+
+##What additional properties did you add to your models and why?
+
+- User Model
+    - User model contains 5 properties: name, email, games_won, games_played, win_ratio.
+    - Unlike the Guess A Number example, I felt that email should be required. I felt this was necessary
+    for linking a user's oauth credentials to their unique user name.
+    - For calculating player rankings, I decided to record match history into the User model. The other
+    option considered was querying all the completed games and compiling the game results to form the
+    rankings when needed, but I thought that was more complicated and computative than just updating
+    a score when a game completes.
+    -win_ratio is a computed property between games_won and games_played used for sorting queries for rankings.
+
+- Game Model
+    - Game model contains the following properties: player_one, player_two, game_state, game_settings,
+    game_board, game_history, player_winner, last_update
+    - One of the design decisions was whether or not the creator of the game should be a parent to the
+    Game entity. For the battleships game, I felt there would be few situations where I would be
+    querying off the parent-child relationship. In most cases, I would not know if the player is the
+    creator of the game or the 2nd player. In the end, I decided it was not necessary for the User
+    to be a parent to the Game.
+    - An Enum was used to keep track of the game's state.
+    - game_settings was saved as a MessageProperty to simplify sending/receiving the game rules.
+    - As the rules of the game could change, I decided it would be best to save the game_board as
+    a JsonProperty of the game. Another option would have been to use a repeated StructuredProperty.
+    I felt the requirements were simple enough and indexing was unnecessary so a JsonProperty would suffice.
+    - game_history was also chosen to be saved as a JsonProperty. Same reasoning as game_board.
+    - last_update was added for filtering which Games should be handled by the cron task.
+
+
+##What were some of the trade-offs or struggles you faced when implementing the new game logic?
+
+- Battleships is a multiplayer game
+    - Battleships multiplayer aspect made it more difficult in that you could not just create the game and
+    begin guessing. There are different states of the game, such as waiting for the second player to join
+    and which player's turn it is, where the game expects different inputs. This problem was solved by using
+    an Enum property to keep track of the state of the game to know what input to accept.
+
+- Battleships guesses are on a 2d grid system
+    - Battleship guesses are not just a simple number but rather a position on a 2d grid. It was necessary to
+    store the ship coordinates in a way to make confirming the guess easy. The solution to this was as simple as
+    just converting the x and y coordinates to a string in the form "x,y".
+
+- Battleships has multiple correct guesses
+    - Rather than a single "goal" answer, it is necessary for a player to correctly guess all of their
+    opponents ship placements to win the game. Also, for each ship, each ship required multiple hits to
+    completely sink. To solve this issue, when the player submitted their ship placements, each
+    ship's required coordinates were expanded out into a list. These lists of coordinates were put together
+    in another list. What we had in the end was a list of every coordinate that the opponent had to guess
+    in order to win. These could be removed one by one as they were guessed and a player wins when the
+    opponents list is empty.
+
