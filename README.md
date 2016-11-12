@@ -23,6 +23,11 @@ In the variation of Battleship that this API uses, the player that creates the g
 is able to customize the rules of the game. The board is allowed dimensions between
 8-20, ship lengths are between 2-5 and there can be 0-5 of each ship.
 
+The game keeps track of each player's remaining ships and reports it to their opponent
+after each turn. A player is declared the victor when their opponent has 0 ships
+remaining. The winner's win count is incremented and both players have their total games
+played count incremented. Players are ranked according to their win ratio (games_won/games_played)
+
 ## Set-Up Instructions:
 1.  Update the value of application in app.yaml to the app ID you have registered
  in the App Engine admin console and would like to use to host your instance of this sample.
